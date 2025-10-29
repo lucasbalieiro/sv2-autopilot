@@ -31,9 +31,7 @@ async fn main() {
     initial_config();
     let roles = Arc::new(Mutex::new(HashMap::new()));
     let roles_clone = roles.clone();
-    let project_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("stratum")
-        .join("roles");
+    let project_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sv2-apps");
     let _ = run_roles(project_path, roles.clone()).await;
 
     let app = Router::new()
@@ -92,8 +90,8 @@ pub async fn sse_pool_logs(
     Query(params): Query<StdHashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("stratum")
-        .join("roles")
+        .join("sv2-apps")
+        .join("pool-apps")
         .join("pool")
         .join("pool.log");
     let newest_first = is_newest_first(&params);
@@ -105,8 +103,8 @@ pub async fn sse_jds_logs(
     Query(params): Query<StdHashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("stratum")
-        .join("roles")
+        .join("sv2-apps")
+        .join("pool-apps")
         .join("jd-server")
         .join("jd-server.log");
     let newest_first = is_newest_first(&params);
@@ -118,8 +116,8 @@ pub async fn sse_jdc_logs(
     Query(params): Query<StdHashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("stratum")
-        .join("roles")
+        .join("sv2-apps")
+        .join("miner-apps")
         .join("jd-client")
         .join("jd-client.log");
     let newest_first = is_newest_first(&params);
@@ -131,8 +129,8 @@ pub async fn sse_translator_logs(
     Query(params): Query<StdHashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("stratum")
-        .join("roles")
+        .join("sv2-apps")
+        .join("miner-apps")
         .join("translator")
         .join("translator.log");
     let newest_first = is_newest_first(&params);
@@ -150,7 +148,7 @@ pub async fn sse_minerd_logs(
 }
 
 pub async fn last_commit() -> Html<String> {
-    let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("stratum");
+    let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sv2-apps");
 
     let output = std::process::Command::new("git")
         .args(["log", "-1", "--pretty=format:%H%n%an%n%ad%n%s"])
@@ -178,8 +176,8 @@ fn initial_config() {
     }
 
     let repo_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let stratum_path = repo_path.join("stratum");
-    let repo_url = "https://github.com/stratum-mining/stratum.git";
+    let stratum_path = repo_path.join("sv2-apps");
+    let repo_url = "https://github.com/stratum-mining/sv2-apps.git";
 
     if !stratum_path.exists() {
         let output = std::process::Command::new("git")
@@ -217,38 +215,43 @@ fn initial_config() {
         }
     }
 
-    let roles_path = stratum_path.join("roles");
-    let targets = ["jd-client", "jd-server", "pool", "translator"];
+    let apps = [
+        ("miner-apps", ["jd-client", "translator"]),
+        ("pool-apps", ["jd-server", "pool"]),
+    ];
 
-    for target in targets.iter() {
-        let project_path = roles_path.join(target);
+    for (subdir, targets) in apps.iter() {
+        for target in targets {
+            let project_path = stratum_path.join(subdir).join(target);
+            let cargo_toml = project_path.join("Cargo.toml");
 
-        if project_path.join("Cargo.toml").exists() {
-            info!("Building project: {}", project_path.display());
+            if cargo_toml.exists() {
+                info!("Building project: {}", project_path.display());
 
-            let output = std::process::Command::new("cargo")
-                .arg("build")
-                .arg("--jobs")
-                .arg("3")
-                .arg("--release")
-                .current_dir(&project_path)
-                .output()
-                .expect("Failed to run cargo build");
+                let output = std::process::Command::new("cargo")
+                    .arg("build")
+                    .arg("--jobs")
+                    .arg("3")
+                    .arg("--release")
+                    .current_dir(&project_path)
+                    .output()
+                    .expect("Failed to run cargo build");
 
-            if !output.status.success() {
-                eprintln!(
-                    "Build failed for {}: {}",
-                    project_path.display(),
-                    String::from_utf8_lossy(&output.stderr)
-                );
+                if !output.status.success() {
+                    eprintln!(
+                        "Build failed for {}: {}",
+                        project_path.display(),
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                } else {
+                    info!("Successfully built {}", project_path.display());
+                }
             } else {
-                info!("Successfully built {}", project_path.display());
+                error!(
+                    "Cargo.toml not found for project: {}",
+                    project_path.display()
+                );
             }
-        } else {
-            error!(
-                "Cargo.toml not found for project: {}",
-                project_path.display()
-            );
         }
     }
 
@@ -262,10 +265,13 @@ fn initial_config() {
     }
 
     let roles_logs = [
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("stratum/roles/jd-client/jd-client.log"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("stratum/roles/jd-server/jd-server.log"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("stratum/roles/pool/pool.log"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("stratum/roles/translator/translator.log"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("sv2-apps/miner-apps/jd-client/jd-client.log"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("sv2-apps/pool-apps/jd-server/jd-server.log"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sv2-apps/pool-apps/pool/pool.log"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("sv2-apps/miner-apps/translator/translator.log"),
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("minerd.log"),
     ];
     for log_path in &roles_logs {
@@ -322,7 +328,7 @@ async fn run_roles(
         .arg("config-examples/pool-config-local-tp-example.toml")
         .arg("-f")
         .arg("pool.log")
-        .current_dir(&project_path.join("pool"))
+        .current_dir(&project_path.join("pool-apps/pool"))
         .env("RUST_LOG", "debug")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -338,7 +344,7 @@ async fn run_roles(
         .arg("config-examples/jds-config-local-example.toml")
         .arg("-f")
         .arg("jd-server.log")
-        .current_dir(&project_path.join("jd-server"))
+        .current_dir(&project_path.join("pool-apps/jd-server"))
         .env("RUST_LOG", "debug")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -357,7 +363,7 @@ async fn run_roles(
         .arg("config-examples/jdc-config-local-example.toml")
         .arg("-f")
         .arg("jd-client.log")
-        .current_dir(&project_path.join("jd-client"))
+        .current_dir(&project_path.join("miner-apps/jd-client"))
         .env("RUST_LOG", "debug")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -376,7 +382,7 @@ async fn run_roles(
         .arg("config-examples/tproxy-config-local-jdc-example.toml")
         .arg("-f")
         .arg("translator.log")
-        .current_dir(&project_path.join("translator"))
+        .current_dir(&project_path.join("miner-apps/translator"))
         .env("RUST_LOG", "debug")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
