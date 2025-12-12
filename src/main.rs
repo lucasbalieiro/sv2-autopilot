@@ -78,9 +78,10 @@ fn is_newest_first(query: &StdHashMap<String, String>) -> bool {
 pub async fn sse_tp_logs(
     Query(params): Query<StdHashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("template-provider")
-        .join("sv2_tp.log");
+    let file_path = PathBuf::from(env!("HOME"))
+        .join(".bitcoin")
+        .join("signet")
+        .join("debug.log");
     let newest_first = is_newest_first(&params);
     let log_stream = tail_file_lines(file_path, newest_first).await;
     Sse::new(log_stream).keep_alive(KeepAlive::new())
@@ -301,31 +302,13 @@ async fn run_roles(
     use std::process::Stdio;
     use tokio::process::Command;
 
-    // TP role
-    let tp_log_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("template-provider")
-        .join("sv2_tp.log");
-    let tp_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("template-provider")
-        .join("sv2-tp");
-    let tp = Command::new(tp_bin)
-        .arg("-signet")
-        .arg("-debug=sv2")
-        .arg("-sv2port=8442")
-        .arg("-loglevel=sv2:trace")
-        .arg(format!("-debuglogfile={}", tp_log_file.to_str().unwrap()))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    roles.lock().unwrap().insert("tp".to_string(), tp);
-
     // Pool role
     let pool = Command::new("cargo")
         .arg("run")
         .arg("--release")
         .arg("--")
         .arg("--config")
-        .arg("config-examples/pool-config-local-tp-example.toml")
+        .arg("config-examples/signet/pool-config-bitcoin-core-ipc-example.toml")
         .arg("-f")
         .arg("pool.log")
         .current_dir(&project_path.join("pool-apps/pool"))
@@ -341,7 +324,7 @@ async fn run_roles(
         .arg("--release")
         .arg("--")
         .arg("--config")
-        .arg("config-examples/jds-config-local-example.toml")
+        .arg("config-examples/signet/jds-config-local-example.toml")
         .arg("-f")
         .arg("jd-server.log")
         .current_dir(&project_path.join("pool-apps/jd-server"))
@@ -360,7 +343,7 @@ async fn run_roles(
         .arg("--release")
         .arg("--")
         .arg("--config")
-        .arg("config-examples/jdc-config-local-example.toml")
+        .arg("config-examples/signet/jdc-config-bitcoin-core-ipc-local-infra-example.toml")
         .arg("-f")
         .arg("jd-client.log")
         .current_dir(&project_path.join("miner-apps/jd-client"))
@@ -379,7 +362,7 @@ async fn run_roles(
         .arg("--release")
         .arg("--")
         .arg("--config")
-        .arg("config-examples/tproxy-config-local-jdc-example.toml")
+        .arg("config-examples/signet/tproxy-config-local-jdc-example.toml")
         .arg("-f")
         .arg("translator.log")
         .current_dir(&project_path.join("miner-apps/translator"))
